@@ -1,0 +1,177 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+env:
+  CARGO_TERM_COLOR: always
+  SCCACHE_GHA_ENABLED: "false"
+  RUSTC_WRAPPER: "sccache"
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  release-macos:
+    name: Release ${{ matrix.platform.label }}
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        platform:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            label: macOS (ARM64)
+          - target: x86_64-apple-darwin
+            os: macos-13
+            label: macOS (Intel)
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Configure cache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.platform.target }}
+
+      - name: Upload binary artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform.target }}-${{ github.ref_name }}-bin
+          path: target/${{ matrix.platform.target }}/release/awsconnect
+          if-no-files-found: error
+
+  release-windows:
+    name: Release Windows
+    runs-on: windows-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        platform:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Configure cache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.platform.target }}
+
+      - name: Upload binary artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.platform.arch }}-${{ github.ref_name }}-bin
+          path: target/${{ matrix.platform.target }}/release/awsconnect.exe
+          if-no-files-found: error
+
+  release-linux:
+    name: Release Linux
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        platform:
+          - { target: "x86_64-unknown-linux-musl", image_tag: "x86_64-musl" }
+          - { target: "aarch64-unknown-linux-musl", image_tag: "aarch64-musl" }
+    container:
+      image: ghcr.io/rust-cross/rust-musl-cross:${{ matrix.platform.image_tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure cache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.platform.target }}
+
+      - name: Upload binary artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform.target }}-${{ github.ref_name }}-bin
+          path: target/${{ matrix.platform.target }}/release/awsconnect
+          if-no-files-found: error
+
+  release-all:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    needs: [release-macos, release-windows, release-linux]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+
+          # Copy and rename artifacts with proper names
+          cp artifacts/aarch64-apple-darwin-${{ github.ref_name }}-bin/awsconnect release-assets/awsconnect-macos-aarch64
+          cp artifacts/x86_64-apple-darwin-${{ github.ref_name }}-bin/awsconnect release-assets/awsconnect-macos-x86_64
+          cp artifacts/windows-x64-${{ github.ref_name }}-bin/awsconnect.exe release-assets/awsconnect-windows-x86_64.exe
+          cp artifacts/x86_64-unknown-linux-musl-${{ github.ref_name }}-bin/awsconnect release-assets/awsconnect-linux-x86_64
+          cp artifacts/aarch64-unknown-linux-musl-${{ github.ref_name }}-bin/awsconnect release-assets/awsconnect-linux-aarch64
+
+          # Create checksums
+          cd release-assets
+          sha256sum * > checksums.txt
+          cd ..
+
+      - name: Create GitHub Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: release-assets/*
+          generateReleaseNotes: true
+          prerelease: ${{ contains(github.ref_name, '-pre') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+          body: |
+            ## Installation
+
+            ### Homebrew (macOS)
+            ```bash
+            brew install carlos-chen-tb/tap/awsconnect
+            ```
+
+            ### Manual Installation
+            Download the appropriate binary for your platform from the assets below.
+
+            ### Checksums
+            SHA256 checksums are available in the `checksums.txt` file.
+
+            ## What's Changed
+            See the full changelog below.
+
+  # update-homebrew-formula:
+  #   name: Update Homebrew Formula
+  #   runs-on: ubuntu-latest
+  #   needs: release-all
+  #   if: ${{ !contains(github.ref_name, '-pre') && !contains(github.ref_name, '-alpha') && !contains(github.ref_name, '-beta') && !contains(github.ref_name, '-rc') }}
+  #   steps:
+  #     - name: Update Homebrew Formula
+  #       env:
+  #         HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.HOMEBREW_GITHUB_API_TOKEN }}
+  #       run: |
+  #         # Extract version from tag
+  #         VERSION=${GITHUB_REF#refs/tags/v}
+
+  #         echo "Updating Homebrew formula for version $VERSION"
+  #         echo "This step would update your Homebrew tap repository"
+  #         echo "You'll need to implement the actual formula update logic"
