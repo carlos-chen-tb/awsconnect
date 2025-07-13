@@ -33,8 +33,8 @@ jobs:
         with:
           targets: ${{ matrix.platform.target }}
 
-      - name: Configure cache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      # - name: Configure cache
+      #   uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Build
         run: cargo build --release --target ${{ matrix.platform.target }}
@@ -64,8 +64,8 @@ jobs:
         with:
           targets: ${{ matrix.platform.target }}
 
-      - name: Configure cache
-        uses: mozilla-actions/sccache-action@v0.0.9
+      # - name: Configure cache
+      #   uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Build
         run: cargo build --release --target ${{ matrix.platform.target }}
@@ -145,7 +145,7 @@ jobs:
 
             ### Homebrew (macOS)
             ```bash
-            brew install your-username/tap/awsconnect
+            brew install carlos-chen-tb/tap/awsconnect
             ```
 
             ### Manual Installation
